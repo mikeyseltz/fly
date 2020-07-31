@@ -1,31 +1,16 @@
 from utils import Calculator
+from classes import Type, Location, Coords
 from math import cos, sin, radians, atan2, degrees, asin, pi, sqrt
 import matplotlib.pyplot as plt
 
-"""
-at every moment:
-ENV:
-- timestamp
-- check for impacts
-PLATFORMS:
-- Location
-- Vector
-- G
-- Intent
-    - target vector (heading and dive)
-    ...if vector != target Vector
-            if g != max g:
-                g += onset_rate
-            else:
-                delta location / Vector
-    - target action (shoot X):
-        if in_range and no missile_in_flight:
-            shoot missile:
-                - create platform (missile) with intent (intercept)
-                    - losing cue -> kill platform.
-"""
-
 def main():
+    """
+    creates an environment and a medium range missile (mrm) as well as two platforms, F-35 and SA-X.
+    Sets their starting location and altitude, etc of F-35
+    sets the intent of the SAM to target 'p' (the F-35) and shoot it...
+    adds both to 'platforms'
+    and then executes
+    """
     e = Environment()
 
     mrm = Missile(2.5, 50)
@@ -50,6 +35,7 @@ def main():
 
 class Environment:
 
+    #these are just for the shitty matplotlib plot
     lat_data = []
     long_data = []
 
@@ -58,16 +44,22 @@ class Environment:
         self.platforms = []
 
     def check_for_deaths(self):
+        """
+        checks every platform to see if it 'hits' another platform
+        the 'immunities' property ensures a doesn't kill it's own shooter immediately after launch
+        """
         for plat_a in self.platforms:
             for plat_b in [plat for plat in self.platforms if plat != plat_a]:
                 if plat_a.is_impacting(plat_b):
                     if plat_a not in plat_b.immunities and plat_b not in plat_a.immunities:
-                        plat_a.die()
-                        plat_b.die()
-                        self.platforms.remove(plat_a)
-                        self.platforms.remove(plat_b)
+                        plat_a.die(self)
+                        plat_b.die(self)
 
     def execute(self):
+        """
+        just runs step() for each platform and checks_for_death after each step
+        also shit plot
+        """
         while self.time < 10000:
             while len(self.platforms) > 1:
                 for platform in self.platforms:
@@ -75,10 +67,10 @@ class Environment:
                 self.time += 1
                 self.check_for_deaths()
 
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.scatter(self.long_data, self.lat_data)
-        plt.show()
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax.scatter(self.long_data, self.lat_data)
+            plt.show()
 
 class Platform:
 
@@ -100,9 +92,9 @@ class Platform:
     def __repr__(self):
         return f"{self.label}"
 
-    def die(self):
+    def die(self, env):
         print(f"{self.label} died")
-
+        env.platforms.remove(self)
 
     def is_impacting(self, other):
         if self.get_range_to(other) < 0.5:
@@ -178,6 +170,10 @@ class Platform:
         env.long_data.append(self.location.coords.lon)
 
     def check_intent(self, env):
+        """
+        shoots the enemy if (a) targeted and (b) in range...
+        if defending, tries to put the enemy on the tail
+        """
         target = self.intent["target"][0]
         posture = self.intent["target"][1]
         if posture == "Offensive":
@@ -195,35 +191,6 @@ class Platform:
         # target.intent["target"] = (missile, "Defensive")  #  uncomment this to have fighter defend
         print("SHOOOOOOOOOOOOOT")
 
-class Type:
-    def __init__(self, msl, max_g, g_onset_rate, accel_prof=None):
-        self.msl = msl
-        self.max_g = max_g
-        self.g_onset_rate = g_onset_rate
-        self.accel_prof = accel_prof
-
-class Location:
-
-    def __init__(self, coords, alt, hdg, vel, dive=0):
-        self.coords = coords
-        self.alt = alt
-        self.hdg = hdg
-        self.vel = vel
-        self.dive = dive
-
-
-class Coords:
-    def __init__(self, lat: float, lon: float):
-        self.latString = "{:.6f}".format(lat)
-        self.longString = "{:.6f}".format(lon)
-        self.lat = radians(lat)
-        self.lon = radians(lon)
-
-    def __repr__(self):
-        if self.lon < 0:
-            return "N " + self.latString + " W " + self.longString[1:] #get rid of the negative
-        else:
-            return "N " + self.latString + " E " + self.longString
 
 
 class Missile(Platform):
