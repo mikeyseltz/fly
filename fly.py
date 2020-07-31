@@ -1,5 +1,5 @@
 from utils import Calculator
-from math import cos, sin, radians, atan2, degrees, asin, pi
+from math import cos, sin, radians, atan2, degrees, asin, pi, sqrt
 
 
 """
@@ -28,8 +28,10 @@ PLATFORMS:
 def main():
     e = Environment()
 
-    f35 = Type("MRM", 7, 3)
-    saX = Type("MRM", 1, 0)
+    mrm = Missile(2.5, 50)
+
+    f35 = Type(mrm, 7, 3)
+    saX = Type(mrm, 1, 0)
 
     p_coords = Coords(36, -115)
     p_location = Location(p_coords, 30000, 270, 1, 0)
@@ -39,6 +41,7 @@ def main():
     adv_location = Location(adv_coords, 0, 0, 0)
     adv = Platform(saX, "SA-X_1", adv_location)
     adv.intent["target"] = (p, "Offensive")
+    adv.intent["master_arm"] = "on"
 
     e.platforms.append(p)
     e.platforms.append(adv)
@@ -52,29 +55,29 @@ class Environment:
         self.platforms = []
 
     def check_for_deaths(self):
-        deaths = []
         for plat_a in self.platforms:
             for plat_b in [plat for plat in self.platforms if plat != plat_a]:
-                if plat_a.location.is_impacting(plat_b.location):
-                    plat_a.die()
-                    plat_b.die()
-                    deaths.append(plat_a)
-                    deaths.append(plat_b)
-        for deadman in deaths:
-            self.platforms.remove(deadman)
+                if plat_a.is_impacting(plat_b):
+                    if plat_a not in plat_b.immunities and plat_b not in plat_a.immunities:
+                        plat_a.die()
+                        plat_b.die()
+                        self.platforms.remove(plat_a)
+                        self.platforms.remove(plat_b)
 
     def execute(self):
-        while self.time < 500:
+        while self.time < 1000:
         # while len(self.platforms) > 0:
             for platform in self.platforms:
                 platform.step(self)
             self.time += 1
+            self.check_for_deaths()
 
 class Platform:
 
     c = Calculator()
 
     def __init__(self, type, label, location):
+        self.immunities = []
         self.type = type
         self.location = location
         self.label = label
@@ -86,8 +89,18 @@ class Platform:
             "master_arm": "off",
         }
 
+    def __repr__(self):
+        return f"{self.label}"
+
     def die(self):
         print(f"{self.label} died")
+
+
+    def is_impacting(self, other):
+        if self.get_range_to(other) < 0.5:
+            return True
+        else:
+            return False
 
     def get_bearing_to(self, target):
         my = self.location.coords
@@ -101,14 +114,14 @@ class Platform:
             return az
 
     def get_range_to(self, target):
-        deltaLat = target.coords.lat - self.coords.lat
-        deltaLong = target.coords.lon - self.coords.lon
-        a = sin(deltaLat / 2)**2 + cos(self.coords.lat) * cos(target.coords.lat) * sin (deltaLong/2)**2
+        r = 3440.1 #radius of earth in nm
+        tgt_coords = target.location.coords
+        own_coords = self.location.coords
+        deltaLat = tgt_coords.lat - own_coords.lat
+        deltaLong = tgt_coords.lon - own_coords.lon
+        a = sin(deltaLat / 2)**2 + cos(own_coords.lat) * cos(tgt_coords.lat) * sin (deltaLong/2)**2
         c = 2 * asin(sqrt(a))
         return c*r
-
-    # def target(self, target):
-    # 	self.turn(self.get_bearing_to(target))
 
     def turn(self, hdg, dive=0):
         st_hdg = self.location.hdg
@@ -149,7 +162,8 @@ class Platform:
         self.check_intent(env)
         self.turn(self.intent['hdg'])
         self.move()
-        print(f"{self.label}, {self.location.coords}, {self.intent['hdg']}")
+        if env.time % 10 == 0:
+            print(f"{self.label}, {self.location.coords}, {self.intent['hdg']}")
 
     def check_intent(self, env):
         target = self.intent["target"][0]
@@ -157,15 +171,16 @@ class Platform:
         if posture == "Offensive":
             self.intent['hdg'] = self.get_bearing_to(target)
             if self.intent['master_arm'] == "on":
-                if self.get_range_to(target) < self.missile.max_range:
-                    self.shoot(self.type.msl, target, env.time)
+                if self.get_range_to(target) < self.type.msl.max_range:
+                    self.shoot(target, env)
         elif posture == "Defensive":
             self.intent['hdg'] = target.get_bearing_to(self)
 
-    def shoot(self, target, type_msl, hack):
-        missile = Missile(self.label, self.location, type_msl, target, env.time)
+    def shoot(self, target, env):
+        missile = self.type.msl
+        missile.fire(self, target, env.time)
         env.platforms.append(missile)
-        print("SHOOOOOOOOOT")
+        print("SHOOOOOOOOOOOOOT")
 
 class Type:
     def __init__(self, msl, max_g, g_onset_rate, accel_prof=None):
@@ -174,20 +189,14 @@ class Type:
         self.g_onset_rate = g_onset_rate
         self.accel_prof = accel_prof
 
-
 class Location:
+
     def __init__(self, coords, alt, hdg, vel, dive=0):
         self.coords = coords
         self.alt = alt
         self.hdg = hdg
         self.vel = vel
         self.dive = dive
-
-    def is_impacting(self, other):
-        if self.get_range_to(other) < 0.5:
-            return True
-        else:
-            return False
 
 
 class Coords:
@@ -205,20 +214,30 @@ class Coords:
 
 
 class Missile(Platform):
-    def __init__(self, shooter, location, type_msl, target, hack):
-        if type_msl == "MRM":
-            self.label = f"msl{hack}"
-            self.shooter = shooter
-            self.target = target
-            self.speed = 2.5
-            self.max_range = 50
+    def __init__(self, speed, max_range):
+        self.immunities = []
+        self.speed = speed
+        self.max_range = max_range
+        self.g = 1
+        self.type = Type(None, 15, 10)
+        # super.__init__(None, "msl", None)
+
+    def fire(self, shooter, target, hack):
+
+        #don't kill self with own missile (since it'll trigger 'check_for_death')
+        self.immunities.append(shooter)
+        shooter.immunities.append(self)
+
+        shooter.intent["master_arm"] = "off"
+        self.location = Location(shooter.location.coords, shooter.location.alt, shooter.location.hdg, self.speed)
+        self.label = f"msl{hack}"
+        self.target = target
         self.intent = {
             "hdg":self.get_bearing_to(self.target),
-            "alt":location.alt,
+            "alt":self.location.alt,
             "target":(self.target, "Offensive"),
-            "master_arm": "on",
+            "master_arm":"off"
         }
-
 
 if __name__ == '__main__':
     main()
