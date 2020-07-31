@@ -1,6 +1,6 @@
 from utils import Calculator
 from math import cos, sin, radians, atan2, degrees, asin, pi, sqrt
-
+import matplotlib.pyplot as plt
 
 """
 at every moment:
@@ -33,8 +33,8 @@ def main():
     f35 = Type(mrm, 7, 3)
     saX = Type(mrm, 1, 0)
 
-    p_coords = Coords(36, -115)
-    p_location = Location(p_coords, 30000, 270, 1, 0)
+    p_coords = Coords(35, -115)
+    p_location = Location(p_coords, 30000, 280, 1, 0)
     p = Platform(f35, "F-35_1", p_location)
 
     adv_coords = Coords(36, -117)
@@ -49,6 +49,9 @@ def main():
 
 
 class Environment:
+
+    lat_data = []
+    long_data = []
 
     def __init__(self):
         self.time = 0  #datetime
@@ -65,12 +68,17 @@ class Environment:
                         self.platforms.remove(plat_b)
 
     def execute(self):
-        while self.time < 1000:
-        # while len(self.platforms) > 0:
-            for platform in self.platforms:
-                platform.step(self)
-            self.time += 1
-            self.check_for_deaths()
+        while self.time < 10000:
+            while len(self.platforms) > 1:
+                for platform in self.platforms:
+                    platform.step(self)
+                self.time += 1
+                self.check_for_deaths()
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.scatter(self.long_data, self.lat_data)
+        plt.show()
 
 class Platform:
 
@@ -125,7 +133,7 @@ class Platform:
 
     def turn(self, hdg, dive=0):
         st_hdg = self.location.hdg
-        if abs(st_hdg-hdg) > 5:
+        if abs(st_hdg-hdg) > 15:  # this needs to get better.
             if self.g < self.type.max_g:
                 self.g += self.type.g_onset_rate
             if st_hdg < 180:
@@ -162,8 +170,12 @@ class Platform:
         self.check_intent(env)
         self.turn(self.intent['hdg'])
         self.move()
-        if env.time % 10 == 0:
+        if env.time % 1 == 0:
             print(f"{self.label}, {self.location.coords}, {self.intent['hdg']}")
+
+        #for shitty matplotlib:
+        env.lat_data.append(self.location.coords.lat)
+        env.long_data.append(self.location.coords.lon)
 
     def check_intent(self, env):
         target = self.intent["target"][0]
@@ -180,6 +192,7 @@ class Platform:
         missile = self.type.msl
         missile.fire(self, target, env.time)
         env.platforms.append(missile)
+        # target.intent["target"] = (missile, "Defensive")  #  uncomment this to have fighter defend
         print("SHOOOOOOOOOOOOOT")
 
 class Type:
@@ -219,7 +232,7 @@ class Missile(Platform):
         self.speed = speed
         self.max_range = max_range
         self.g = 1
-        self.type = Type(None, 15, 10)
+        self.type = Type(None, 20, 15)
         # super.__init__(None, "msl", None)
 
     def fire(self, shooter, target, hack):
